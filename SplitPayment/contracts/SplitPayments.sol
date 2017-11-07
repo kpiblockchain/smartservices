@@ -1,6 +1,6 @@
 pragma solidity ^0.4.0;
 /// Kontrakt 'globalny', zawierający wszystkie zasoby
-contract SplitPayment {
+contract SplitPayments {
     
     struct Shareholder {
         address account; // adres konta
@@ -18,7 +18,7 @@ contract SplitPayment {
     mapping(uint256 => Resource) resources; // resourceId => Resource
     uint256 resourceCounter; // służy do uzyskania unikalnego* ID
     
-    function SplitPayment() public {
+    function SplitPayments() public {
         owner = msg.sender;
     }
     
