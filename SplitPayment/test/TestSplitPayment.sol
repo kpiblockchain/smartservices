@@ -7,8 +7,15 @@ import "../contracts/SplitPayment.sol";
 contract TestSplitPayment {
     SplitPayment splitPayment = SplitPayment(DeployedAddresses.SplitPayment());
 
-    function test() {
-        // TODO
-        Assert.fail("TODO");
+    function testThatProviderIsSet() public {
+        Assert.equal(splitPayment.provider(), tx.origin, "I should be the provider");
+    }
+
+    function testThatFeeIsSet() public {
+        Assert.equal(splitPayment.fee(), 0, "Default fee should be 0");
+    }
+
+    function testThatSharesSumIsSet() public {
+        Assert.equal(splitPayment.sharesSum(), 100, "Default sharesSum should be 100");
     }
 }
