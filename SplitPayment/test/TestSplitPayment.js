@@ -35,5 +35,5 @@ function GetBalance(account) {
 }
 
 function AssertBalance(account, previousBalance, share, shareSum, amount) {
-    assert.equal(GetBalance(account).toString(), previousBalance.add(amount.mul(share / shareSum)).toString(), "Account '" + account + "' has incorrect balance");
+    assert.equal(GetBalance(account).toString(), previousBalance.add(amount.mul(share / shareSum)).toString(), "Account '" + account + "' has an incorrect balance");
 }

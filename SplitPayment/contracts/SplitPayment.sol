@@ -1,31 +1,32 @@
 pragma solidity ^0.4.0;
 
-/// Kontrakt per zasób
-/// Token za płatność
-/// Token platformy
-/// Platforma do zarządzania fanklubami przez artystów
-/// Aktywacyjna opłata per contract + opłata
-/// obsłużenie mniejszych lub większych
-/// darmowe usługi dla właścicieli tokenów platformy
-
-/// opisać cały proces aktywacji - znaleźć problemy
+/// token za płatność - tak
+/// token platformy - jeszcze nie?
+/// platforma do zarządzania fanklubami przez artystów
+/// opłata aktywacyjna
+/// darmowe usługi dla właścicieli tokenów platformy - ?
 contract SplitPayment {
-    
-    struct Shareholder {
-        address account; // adres konta
-        uint share; // waga
-    }
+    address   public provider; // adres zarządzający dostępem do zasobu
+    address   public factory; // adres fabryki
+    address   public admin; // adres administratora (płacącego za kontrakt)
+    uint      public fee; // opłata za wpłaty, w procentach, dla {provider}
 
-    address public _provider; // adres zarządzający dostępem do zasobu
-    address public _factory; // adres fabryki
-    address public _admin; // adres administratora (płacącego za kontrakt)
-    uint    public _fee; // opłata za wpłaty, w procentach
-    uint    public _sharesSum; // suma wag zasobu
-    Shareholder[] public _shareholders; // adresy mające prawa do zasobu
+    mapping(address => address) private next;
+    mapping(address => address) private previous;
+    address private first;
+    address private last;
+    mapping(address => uint) public shares; // account => share
+    uint                     public sharesSum; // suma udziałów
 
     event ShareholderAddedEvent(
-        address shareholderAddress,
-        uint shareholderShare
+        address account,
+        uint share
+    );
+
+    event ShareTransferEvent(
+        address from,
+        address to,
+        uint transferedShares
     );
 
     event PaymentEvent(
@@ -33,87 +34,124 @@ contract SplitPayment {
     );
     
     modifier providerOnly() {
-        require(msg.sender == _provider); _;
+        require(msg.sender == provider); _;
     }
     
-    modifier adminOrProvider() {
-        require(msg.sender == _admin || msg.sender == _provider); _;
+    modifier providerOrAdmin() {
+        require(msg.sender == provider || msg.sender == admin); _;
     }
     
-    modifier factoryOrProvider() {
-        require(msg.sender == _factory || msg.sender == _provider); _;
+    modifier providerOrFactory() {
+        require(msg.sender == provider || msg.sender == factory); _;
     }
     
-    modifier validateFee(uint fee) {
-        require(fee < 100); _;
-    }
-    
-    modifier areEqual(uint first, uint second) {
-        require(first == second); _;
+    modifier validateFee(uint _fee) {
+        require(_fee < 100); _;
     }
 
-    function SplitPayment(address[] accounts, uint[] shares, uint fee, address provider, address admin) public validateFee(fee) {
-        _setProvider(provider);
-        _setAdmin(admin);
-        _factory = msg.sender;
-        _fee = fee;
-        addShareholders(accounts, shares);
+    function SplitPayment(address[] _accounts, uint[] _shares, uint _fee, address _provider, address _admin) public validateFee(_fee) {
+        _setProvider(_provider);
+        _setAdmin(_admin);
+        factory = msg.sender;
+        fee = _fee;
+        initShareholders(_accounts, _shares);
     }
-    
-    function addShareholders(address[] accounts, uint[] shares) public factoryOrProvider() areEqual(accounts.length, shares.length) {
-        uint count = accounts.length;
-        for (uint i = 0; i < count; i++) {
-            addShareholder(accounts[i], shares[i]);
+
+    function _setProvider(address _provider) internal {
+        if (_provider == 0) {
+            provider = msg.sender;
+        } else {
+            provider = _provider;
+        }
+    }
+
+    function _setAdmin(address _admin) internal {
+        if (_admin == 0) {
+            admin = msg.sender;
+        } else {
+            admin = _admin;
         }
     }
     
-    function addShareholder(address account, uint share) public factoryOrProvider() {
-        _shareholders.push(Shareholder(account, share));
-        _sharesSum += share;
-        ShareholderAddedEvent(account, share);
+    function initShareholders(address[] _accounts, uint[] _shares) internal providerOrFactory() {
+        require(_accounts.length == _shares.length);
+        require(_accounts.length > 0);
+        
+        uint count = _accounts.length;
+        for (uint i = 0; i < count; i++) {
+            initShareholder(_accounts[i], _shares[i]);
+        }
     }
+
+    function initShareholder(address _account, uint _share) internal {
+        require(_share > 0);
+        require(_account != 0x0);
+
+        if (first == 0x0) {
+            first = _account;
+            last = _account;
+        } else {
+            next[last] = _account;
+            previous[_account] = last;
+            last = _account;
+        }
+        shares[_account] = _share;
+        sharesSum += _share;
+        ShareholderAddedEvent(_account, _share);
+    }
+
+    function transferShares(address _recipient, uint _sharesToTransfer) public {
+        require(_recipient != 0x0);
+        require(msg.sender != _recipient);
+        require(_sharesToTransfer > 0);
+        require(shares[msg.sender] >= _sharesToTransfer);
+
+        if (shares[_recipient] == 0) { // create account:
+            next[last] = _recipient;
+            previous[_recipient] = last;
+            last = _recipient;
+        }
+        shares[_recipient] += _sharesToTransfer;
+        shares[msg.sender] -= _sharesToTransfer;
+        if (shares[msg.sender] == 0) {
+            next[previous[msg.sender]] = next[msg.sender];
+            previous[next[msg.sender]] = previous[msg.sender];
+            if (msg.sender == last) {
+                last = previous[msg.sender];
+            }
+            // clear loose 'references'?
+        }
+        ShareTransferEvent(msg.sender, _recipient, _sharesToTransfer);
+    }
+
+    // TODO function getAllShareholders public
     
     function() payable public {
-        uint length = _shareholders.length;
         uint sharesSumAfterFee = _deductFeeFromShareSum();
-        for (uint i = 0; i < length; i++) {
-            var shareholder = _shareholders[i];
-            shareholder.account.transfer(msg.value * shareholder.share / sharesSumAfterFee);
+        var currentAccount = first;
+        while (currentAccount != 0x0) {
+            currentAccount.transfer(msg.value * shares[currentAccount] / sharesSumAfterFee);
+            currentAccount = next[currentAccount];
         }
         PaymentEvent(msg.value);
     }
 
     function _deductFeeFromShareSum() view internal returns (uint) {
-        if (_fee == 0) {
-            // 0% _fee
-            return _sharesSum;
+        if (fee == 0) {
+            // 0% fee
+            return sharesSum;
         }
-        // >0% _fee
-        return _sharesSum * (100 + _fee) / 100; 
+        // >0% fee
+        return sharesSum * (100 + fee) / 100; 
     }
 
-    function _setProvider(address provider) internal {
-        if (provider == 0) {
-            _provider = msg.sender;
-        } else {
-            _provider = provider;
-        }
-    }
-
-    function _setAdmin(address admin) internal {
-        if (admin == 0) {
-            _admin = msg.sender;
-        } else {
-            _admin = admin;
-        }
-    }
-
-    function collectFee() public providerOnly() returns(uint collectedAmount) {
-        collectedAmount = this.balance;
-        _provider.transfer(this.balance);
+    function collectFee() public providerOnly() returns(uint _collectedAmount) {
+        _collectedAmount = this.balance;
+        provider.transfer(this.balance);
     }
     
-    function destroy() public adminOrProvider() {
-        selfdestruct(_provider);
+    function destroy() public providerOrAdmin() {
+        // TODO clear all storage?
+        selfdestruct(provider);
     }
 }

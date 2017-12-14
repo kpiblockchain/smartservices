@@ -8,10 +8,10 @@ contract TestSplitPaymentFactory {
     SplitPaymentFactory factory = SplitPaymentFactory(DeployedAddresses.SplitPaymentFactory());
 
     function testThatFactoryOwnerIsSet() public {
-        Assert.equal(factory._provider(), tx.origin, "I should be the owner");
+        Assert.equal(factory.provider(), tx.origin, "I should be the owner");
     }
 
     function testThatFactoryFeeIsSet() public {
-        Assert.equal(factory._fee(), 0, "Default fee shoud be 0");
+        Assert.equal(factory.fee(), 0, "Default fee shoud be 0");
     }
 }
