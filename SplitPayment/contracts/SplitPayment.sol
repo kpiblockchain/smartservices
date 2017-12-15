@@ -1,10 +1,6 @@
 pragma solidity ^0.4.0;
 
-/// token za płatność - tak
-/// token platformy - jeszcze nie?
-/// platforma do zarządzania fanklubami przez artystów
-/// opłata aktywacyjna
-/// darmowe usługi dla właścicieli tokenów platformy - ?
+/// TODO token za płatność - tak, ograniczony, warunkowy
 contract SplitPayment {
     address   public provider; // adres zarządzający dostępem do zasobu
     address   public factory; // adres fabryki
@@ -13,8 +9,8 @@ contract SplitPayment {
 
     mapping(address => address) private next;
     mapping(address => address) private previous;
-    address private first;
-    address private last;
+    address                     private last;
+
     mapping(address => uint) public shares; // account => share
     uint                     public sharesSum; // suma udziałów
 
@@ -35,6 +31,10 @@ contract SplitPayment {
     
     modifier providerOnly() {
         require(msg.sender == provider); _;
+    }
+    
+    modifier adminOnly() {
+        require(msg.sender == admin); _;
     }
     
     modifier providerOrAdmin() {
@@ -87,8 +87,7 @@ contract SplitPayment {
         require(_share > 0);
         require(_account != 0x0);
 
-        if (first == 0x0) {
-            first = _account;
+        if (last == 0x0) {
             last = _account;
         } else {
             next[last] = _account;
@@ -106,32 +105,33 @@ contract SplitPayment {
         require(_sharesToTransfer > 0);
         require(shares[msg.sender] >= _sharesToTransfer);
 
-        if (shares[_recipient] == 0) { // create account:
+        if (shares[_recipient] == 0) { // if _recipient account should be added:
             next[last] = _recipient;
             previous[_recipient] = last;
             last = _recipient;
         }
         shares[_recipient] += _sharesToTransfer;
         shares[msg.sender] -= _sharesToTransfer;
-        if (shares[msg.sender] == 0) {
-            next[previous[msg.sender]] = next[msg.sender];
-            previous[next[msg.sender]] = previous[msg.sender];
+        if (shares[msg.sender] == 0) { // if msg.sender account should be removed:
+            var senderNext = next[msg.sender];
+            var senderPrevious = previous[msg.sender];
+
+            next[senderPrevious] = senderNext;
+            previous[senderNext] = senderPrevious;
             if (msg.sender == last) {
-                last = previous[msg.sender];
+                last = senderPrevious;
             }
             // clear loose 'references'?
         }
         ShareTransferEvent(msg.sender, _recipient, _sharesToTransfer);
     }
-
-    // TODO function getAllShareholders public
     
     function() payable public {
         uint sharesSumAfterFee = _deductFeeFromShareSum();
-        var currentAccount = first;
+        var currentAccount = last;
         while (currentAccount != 0x0) {
             currentAccount.transfer(msg.value * shares[currentAccount] / sharesSumAfterFee);
-            currentAccount = next[currentAccount];
+            currentAccount = previous[currentAccount];
         }
         PaymentEvent(msg.value);
     }
@@ -143,6 +143,24 @@ contract SplitPayment {
         }
         // >0% fee
         return sharesSum * (100 + fee) / 100; 
+    }
+
+    function multiplyShares(uint16 _multiplier) public adminOnly() { // TODO consensus or vote?
+        require(_multiplier > 0);
+
+        // TODO safe multiplication
+        var currentAccount = last;
+        while (currentAccount != 0x0) {
+            shares[currentAccount] *= _multiplier;
+            currentAccount = previous[currentAccount];
+        }
+        sharesSum *= _multiplier;
+        // TODO SharesMultipliedEvent(_multiplier);
+    }
+
+    function myShares() public view returns(uint _shares, uint8 _sharePercantage) {
+        _shares = shares[msg.sender];
+        _sharePercantage = (uint8) (shares[msg.sender] * 100 / sharesSum); // is this cast efficient? 
     }
 
     function collectFee() public providerOnly() returns(uint _collectedAmount) {
